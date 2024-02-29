@@ -205,11 +205,7 @@ cd ~/pvp
 python pvp/experiments/carla/train_pvp_carla.py --exp_name pvp_carla_test
 
 # Run full experiment
-python pvp/experiments/metadrive/train_pvp_metadrive.py \
---exp_name pvp_carla \
---wandb \
---wandb_project WADNB_PROJECT_NAME \
---wandb_team WANDB_ENTITY_NAME
+python pvp/experiments/carla/train_pvp_carla.py --exp_name pvp_carla --wandb --wandb_project WADNB_PROJECT_NAME --wandb_team WANDB_ENTITY_NAME
 ```
 
 | Action             | Control                 |
