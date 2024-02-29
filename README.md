@@ -58,7 +58,7 @@ python -c "import carla"  # If no error raises, the installation is successful.
 
 # Step 4: Install dependencies
 pip install DI-engine==0.2.2
-pip install torchvision
+pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
 pip install markupsafe==2.0.1
 
 # NOTE: If you are using a new conda environment, you might need to reinstall 'pvp' repo.
