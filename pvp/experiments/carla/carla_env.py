@@ -24,10 +24,9 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(__file__)    # what's the purpose?
 
 is_windows = "Win" in platform.system()
-
 
 def safe_clip(array, min_val, max_val):
     array = np.nan_to_num(array.astype(np.float64), copy=False, nan=0.0, posinf=max_val, neginf=min_val)
