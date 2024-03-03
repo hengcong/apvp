@@ -107,7 +107,7 @@ class SteeringWheelController:
 
         self.right_shift_paddle = False
         self.left_shift_paddle = False
-
+        # button definitions are different.
         self.button_circle = False
         self.button_rectangle = False
         self.button_triangle = False
