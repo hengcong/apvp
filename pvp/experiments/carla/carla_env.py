@@ -91,11 +91,19 @@ class SteeringWheelController:
             pygame.joystick.init()
             assert pygame.joystick.get_count() > 0, "Please connect the steering wheel!"
             print("Successfully Connect your Steering Wheel!")
+            try:
+                ffb_device = evdev.list_devices()[0]  # This assumes the first device is the correct one
+                self.ffb_dev = InputDevice(ffb_device)
+                print(f"Force feedback device initialized: {self.ffb_dev.name}")
+            except IndexError:
+                # Handle the case where no evdev devices could be found
+                print("No evdev devices found. Force feedback will not be available.")
+                self.ffb_dev = None
 
-            ffb_device = evdev.list_devices()[0]
-            self.ffb_dev = InputDevice(ffb_device)
-
+            # Initialize the first joystick found
             self.joystick = pygame.joystick.Joystick(0)
+            self.joystick.init()
+            print(f"Joystick initialized: {self.joystick.get_name()}")
 
         self.right_shift_paddle = False
         self.left_shift_paddle = False
