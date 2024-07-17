@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Union, Optional
 
 import numpy as np
 import torch as th
-from torch import nn
 from torch.nn import functional as F
 
 from pvp.sb3.common.buffers import ReplayBuffer
@@ -16,9 +15,9 @@ from pvp.sb3.common.type_aliases import GymEnv, MaybeCallback
 from pvp.sb3.common.utils import polyak_update
 from pvp.sb3.haco.haco_buffer import HACOReplayBuffer, concat_samples
 from pvp.sb3.td3.td3 import TD3
-from pvp.sb3.sac.our_features_extractor import OurFeaturesExtractor
 
 logger = logging.getLogger(__name__)
+
 
 class PVPTD3(TD3):
     def __init__(self, use_balance_sample=True, q_value_bound=1., *args, **kwargs):
@@ -44,7 +43,6 @@ class PVPTD3(TD3):
 
     def _setup_model(self) -> None:
         super(PVPTD3, self)._setup_model()
-        
         if self.use_balance_sample:
             self.human_data_buffer = HACOReplayBuffer(
                 self.buffer_size,
@@ -73,14 +71,11 @@ class PVPTD3(TD3):
             if self.replay_buffer.pos > batch_size and self.human_data_buffer.pos > batch_size:
                 replay_data_agent = self.replay_buffer.sample(int(batch_size / 2), env=self._vec_normalize_env)
                 replay_data_human = self.human_data_buffer.sample(int(batch_size / 2), env=self._vec_normalize_env)
-                expert_data = self.human_data_buffer.sample(int(batch_size), env=self._vec_normalize_env)
                 replay_data = concat_samples(replay_data_agent, replay_data_human)
             elif self.human_data_buffer.pos > batch_size:
                 replay_data = self.human_data_buffer.sample(batch_size, env=self._vec_normalize_env)
-                expert_data = self.human_data_buffer.sample(batch_size, env=self._vec_normalize_env)
             elif self.replay_buffer.pos > batch_size:
                 replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
-                expert_data= None
             else:
                 break
 
@@ -96,7 +91,6 @@ class PVPTD3(TD3):
                 target_q_values = replay_data.rewards + (1 - replay_data.dones) * self.gamma * next_q_values
 
             # Get current Q-values estimates for each critic network
-            current_expert_actions = self.expert(replay_data.observations)
             current_q_behavior_values = self.critic(replay_data.observations, replay_data.actions_behavior)
             current_q_novice_values = self.critic(replay_data.observations, replay_data.actions_novice)
 
@@ -112,28 +106,17 @@ class PVPTD3(TD3):
                     )
 
                 else:
-
                     l = 0.5 * F.mse_loss(current_q_behavior, target_q_values)
 
                 # ====== The key of Proxy Value Objective =====
-
-                action_similarity = F.mse_loss(current_expert_actions, replay_data.actions_novice, reduction='none')
-                action_similarity = action_similarity[:,0] + action_similarity[:,1]
-                action_similarity = action_similarity.view(-1, 1)
-                
                 l += th.mean(
                     replay_data.interventions * self.cql_coefficient *
-                    (F.mse_loss(current_q_behavior, -self.q_value_bound * 0.01*action_similarity))
+                    (F.mse_loss(current_q_behavior, self.q_value_bound * th.ones_like(current_q_behavior)))
                 )
-
                 l += th.mean(
                     replay_data.interventions * self.cql_coefficient *
-                    (F.mse_loss(current_q_novice, -self.q_value_bound *0.01* action_similarity))
+                    (F.mse_loss(current_q_novice, -self.q_value_bound * th.ones_like(current_q_novice)))
                 )
-
-
-                # Add the print statements before using these tensors
- 
 
                 critic_loss.append(l)
             critic_loss = sum(critic_loss)
@@ -150,7 +133,6 @@ class PVPTD3(TD3):
                 actor_loss = -self.critic.q1_forward(replay_data.observations, self.actor(replay_data.observations
                                                                                           )).mean()
 
-
                 # Optimize the actor
                 self.actor.optimizer.zero_grad()
                 actor_loss.backward()
@@ -159,19 +141,10 @@ class PVPTD3(TD3):
 
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
                 polyak_update(self.actor.parameters(), self.actor_target.parameters(), self.tau)
-             # Train expert network using expert data
-            expert_actions = self.expert(expert_data.observations)
-            expert_loss = F.mse_loss(expert_actions, expert_data.actions_behavior)  # Assuming ground truth actions are available in expert_data
 
-            # Optimize the expert network
-            self.expert.optimizer.zero_grad()
-            expert_loss.backward()
-            self.expert.optimizer.step()
-            self.logger.record("train/expert_loss", expert_loss.item())
-
-            self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-            for key, values in stat_recorder.items():
-                self.logger.record("train/{}".format(key), np.mean(values))
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        for key, values in stat_recorder.items():
+            self.logger.record("train/{}".format(key), np.mean(values))
 
     def _store_transition(
         self,
