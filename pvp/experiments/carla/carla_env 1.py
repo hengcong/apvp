@@ -14,6 +14,7 @@ import numpy as np
 import pygame
 from easydict import EasyDict
 from evdev import ecodes, InputDevice
+import carla
 
 from pvp.experiments.carla.di_drive.core.envs.simple_carla_env import SimpleCarlaEnv
 from pvp.experiments.carla.di_drive.demo.simple_rl.env_wrapper import ContinuousBenchmarkEnvWrapper
@@ -52,7 +53,6 @@ train_config = dict(
             town='Town01',
             disable_two_wheels=True,
             verbose=False,
-            n_vehicles=10,
             waypoint_num=32,
             planner=dict(
                 type='behavior',
@@ -124,29 +124,34 @@ class SteeringWheelController:
         pygame.event.pump()
 
         if is_windows:
+            #steering = (-self.joystick.get_axis(0)) / 1.5
+            #throttle = (1 - self.joystick.get_axis(1)) / 2
+            #brake = (1 - self.joystick.get_axis(3)) / 2
             raise ValueError("We have not yet tested windows.")
 
         else:
             # print("Num axes: ", self.joystick.get_numaxes())
 
             # Our wheel can provide values in [-1.5, 1.5].
-            steering = (-self.joystick.get_axis(0))/1.5   # 0th axis is the wheel
+            steering = (-self.joystick.get_axis(0))   # 0th axis is the wheel
+            #print("steering: ", steering)
 
             # 2nd axis is the right paddle. Range from 0 to 1
             # 3rd axis is the middle paddle. Range from 0 to 1
             # Of course then 1st axis is the left paddle.
-
-            raw_throttle = self.joystick.get_axis(1)
-            raw_brake = self.joystick.get_axis(2)
+            #
+            # print("Raw throttle: {}, raw brake: {}".format(self.joystick.get_axis(2), self.joystick.get_axis(3)))
+            raw_throttle = self.joystick.get_axis(2)
+            raw_brake = self.joystick.get_axis(3)
+            # print("raw_throttle: ", raw_throttle)
             # It is possible that the paddles always return 0 (should be 1 if not pressed) after initialization.
-            if abs(raw_throttle) < 1e-4:
-                raw_throttle = 1.0 - 1e-6
-            if abs(raw_brake) < 1e-4:
-                raw_brake = 1.0 - 1e-6
-            throttle = (1 - raw_throttle) / 2
-            brake = (1 - raw_brake) / 2
-            #print("Raw throttle: {}, raw brake: {}".format(self.joystick.get_axis(1), self.joystick.get_axis(2)))
-            #print("throttle: {}, brake: {}".format(throttle, brake))
+            # activate the pedals by pressing the throttle and the brake
+            if not self.left_shift_paddle and not self.right_shift_paddle:
+                throttle = 0
+                brake = 0
+            else:
+                throttle = (1 + raw_throttle) / 2
+                brake = (1 + raw_brake) / 2
 
         self.right_shift_paddle = True if self.joystick.get_button(self.RIGHT_SHIFT_PADDLE) else False
         self.left_shift_paddle = True if self.joystick.get_button(self.LEFT_SHIFT_PADDLE) else False
@@ -254,7 +259,10 @@ class SteeringWheelController:
 
 
 class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
-    def __init__(self, external_config=None):
+    def __init__(
+        self,
+        external_config=None,
+    ):
         config = copy.deepcopy(train_config)
 
         # If disable visualization, we don't need to create the main camera (third person view)
@@ -268,7 +276,7 @@ class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
                 dict(
                     name='vis',
                     type='rgb',
-                    size=[1800, 1000],
+                    size=[2100, 1400],
                     position=[-5.5, 0, 2.8],
                     rotation=[-15, 0, 0],
                 )
@@ -291,6 +299,10 @@ class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
                     name='rgb',
                     type='rgb',
                     size=[320, 180],
+
+                    # PZH Note: To recap, the default config contains:
+                    # 'position':[2.0, 0.0, 1.4],
+                    # 'rotation':[0, 0, 0],
                 )
             )
             if external_config["obs_mode"] == "firststack":
@@ -325,14 +337,14 @@ class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
             self.controller = None
 
         # Set up some variables
-        self.takeover = False
-        self.left_shift_paddle_prev = False
+        self.last_takeover = False
         self.episode_recorder = defaultdict(list)
         force_fps = self.main_config["force_fps"]
         self.force_fps = ForceFPS(fps=force_fps, start=(force_fps > 0))
         self.normalize_obs = self.main_config["normalize_obs"]
 
     def step(self, action):
+
         # Get control signal from human
         if self.controller is not None:
             try:
@@ -340,27 +352,20 @@ class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
             except KeyboardInterrupt as e:
                 self.close()
                 raise e
-            
             if self.main_config["disable_brake"] and human_action[1] < 0.0:
                 human_action[1] = 0.0
-
-            left_shift_paddle_current = self.controller.left_shift_paddle
-
-            if left_shift_paddle_current and not self.left_shift_paddle_prev:
-                self.takeover = not self.takeover
-
-            self.left_shift_paddle_prev = left_shift_paddle_current
+            takeover = self.controller.left_shift_paddle or self.controller.right_shift_paddle
         else:
             human_action = [0, 0]
-            self.takeover = False
-        
+            takeover = False
+
         # Step the environment
-        o, r, d, info = super(HumanInTheLoopCARLAEnv, self).step(human_action if self.takeover else action)
+        o, r, d, info = super(HumanInTheLoopCARLAEnv, self).step(human_action if takeover else action)
 
         # Postprocess the environment return
         self.episode_recorder["reward"].append(r)
-        info["takeover_start"] = True if not self.last_takeover and self.takeover else False
-        info["takeover"] = self.takeover and not info["takeover_start"]
+        info["takeover_start"] = True if not self.last_takeover and takeover else False
+        info["takeover"] = takeover and not info["takeover_start"]
         condition = info["takeover_start"]
         if not condition:
             self.episode_recorder["cost"].append(0)
@@ -370,8 +375,8 @@ class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
             self.episode_recorder["cost"].append(cost)
             info["takeover_cost"] = cost
         info["total_cost"] = info["total_takeover_cost"] = sum(self.episode_recorder["cost"])
-        info["raw_action"] = list(action) if not self.takeover else list(human_action)
-        self.last_takeover = self.takeover
+        info["raw_action"] = list(action) if not takeover else list(human_action)
+        self.last_takeover = takeover
         info["velocity"] = self.env._simulator_databuffer['state']['speed']
         self.episode_recorder["velocity"].append(info["velocity"])
         info["steering"] = float(info["raw_action"][0])
@@ -413,7 +418,6 @@ class HumanInTheLoopCARLAEnv(ContinuousBenchmarkEnvWrapper):
         return 1 - cos_dist
 
     def reset(self, *args, **kwargs):
-        self.takeover = False
         self.last_takeover = False
         self.episode_recorder.clear()
         if self.controller:

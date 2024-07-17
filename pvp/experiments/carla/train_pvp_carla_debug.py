@@ -15,20 +15,14 @@ from pvp.sb3.sac.our_features_extractor import OurFeaturesExtractor
 from pvp.sb3.td3.policies import TD3Policy
 from pvp.utils.shared_control_monitor import SharedControlMonitor
 from pvp.utils.utils import get_time_str
-import wandb
 
-# def main():
-
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_name", default="pvp_carla", type=str, help="The name for this batch of experiments.")
     parser.add_argument("--seed", default=0, type=int, help="The random seed.")
     parser.add_argument("--wandb", action="store_true", help="Set to True to upload stats to wandb.")
-    parser.add_argument("--wandb_project", type=str, default="", help="The project name for wandb.")
-    parser.add_argument("--wandb_team", type=str, default="", help="The team name for wandb.")
-    parser.add_argument("--wandb_run_id", type=str, default="", help="The run ID for resuming in wandb.")
-    parser.add_argument("--pretrained_model", type=str, default="", help="Path to the pretrained model.")
-
+    parser.add_argument("--wandb_project", type=str, default="pvp", help="The project name for wandb.")
+    parser.add_argument("--wandb_team", type=str, default="beliv", help="The team name for wandb.")
 
     parser.add_argument(
         "--obs_mode",
@@ -54,8 +48,6 @@ if __name__ == '__main__':
     use_wandb = args.wandb
     project_name = args.wandb_project
     team_name = args.wandb_team
-    run_id = args.wandb_run_id
-    
     if not use_wandb:
         print("[WARNING] Please note that you are not using wandb right now!!!")
 
@@ -92,7 +84,7 @@ if __name__ == '__main__':
             policy_kwargs=dict(
                 features_extractor_class=OurFeaturesExtractor,
                 features_extractor_kwargs=dict(features_dim=256 + other_feat_dim),
-                share_features_extractor=True,  # PZH: Using independent CNNs for actor and critics
+                share_features_extractor=False,  # PZH: Using independent CNNs for actor and critics
                 net_arch=[
                     256,
                 ]
@@ -125,6 +117,7 @@ if __name__ == '__main__':
 
     # ===== Setup the training environment =====
     train_env = HumanInTheLoopCARLAEnv(external_config=config["env_config"], )
+    #info = train_env.step([0,0])
     train_env = Monitor(env=train_env, filename=str(trial_dir))
     train_env = SharedControlMonitor(env=train_env, folder=trial_dir / "data", prefix=trial_name)
     config["algo"]["env"] = train_env
@@ -150,32 +143,6 @@ if __name__ == '__main__':
     # ===== Setup the training algorithm =====
     model = PVPTD3(**config["algo"])
 
-    # ===== Load pretrained model if specified =====
-    if args.pretrained_model:
-        if os.path.exists(args.pretrained_model):
-            model.load(args.pretrained_model)
-            print(f"Loaded pretrained model from {args.pretrained_model}")
-        else:
-            print(f"Pretrained model path {args.pretrained_model} does not exist!")
-
-
-    # Initialize Wandb
-    if use_wandb:
-        if run_id:
-            wandb.init(
-                project=project_name,
-                entity=team_name,
-                config=config,
-                resume="allow",
-                id=run_id,
-            )
-        else:
-            wandb.init(
-                project=project_name,
-                entity=team_name,
-                config=config,
-            )
-
     # ===== Launch training =====
     model.learn(
         # training
@@ -195,3 +162,5 @@ if __name__ == '__main__':
         save_buffer=False,
         load_buffer=False,
     )
+if __name__ == '__main__':
+    main()
