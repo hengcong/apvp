@@ -132,7 +132,6 @@ class TD3(OffPolicyAlgorithm):
         self.actor_target = self.policy.actor_target
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
-        self.expert = self.policy.expert
 
     def train(self, gradient_steps: int, batch_size: int = 100) -> None:
         # Switch to train mode (this affects batch norm / dropout)

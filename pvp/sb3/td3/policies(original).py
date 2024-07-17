@@ -137,7 +137,6 @@ class TD3Policy(BasePolicy):
                 net_arch = [400, 300]
 
         actor_arch, critic_arch = get_actor_critic_arch(net_arch)
-        expert_arch = actor_arch.copy()
 
         self.net_arch = net_arch
         self.activation_fn = activation_fn
@@ -150,7 +149,6 @@ class TD3Policy(BasePolicy):
         }
         self.actor_kwargs = self.net_args.copy()
         self.critic_kwargs = self.net_args.copy()
-        self.expert_kwargs = self.net_args.copy()
         self.critic_kwargs.update(
             {
                 "n_critics": n_critics,
@@ -159,15 +157,8 @@ class TD3Policy(BasePolicy):
             }
         )
 
-        self.expert_kwargs.update(
-            {
-                "net_arch": expert_arch
-            }
-        )
-
         self.actor, self.actor_target = None, None
         self.critic, self.critic_target = None, None
-        self.expert = None
         self.share_features_extractor = share_features_extractor
 
         self._build(lr_schedule)
@@ -184,7 +175,6 @@ class TD3Policy(BasePolicy):
 
         if self.share_features_extractor:
             self.critic = self.make_critic(features_extractor=self.actor.features_extractor)
-            self.expert = self.make_expert(features_extractor=self.actor.features_extractor)
             # Critic target should not share the features extactor with critic
             # but it can share it with the actor target as actor and critic are sharing
             # the same features_extractor too
@@ -194,17 +184,12 @@ class TD3Policy(BasePolicy):
         else:
             # Create new features extractor for each network
             self.critic = self.make_critic(features_extractor=None)
-            self.expert = self.make_expert(features_extractor=None)
             self.critic_target = self.make_critic(features_extractor=None)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic.optimizer = self.optimizer_class(
             self.critic.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
         )
-
-        self.expert.optimizer = self.expert.optimizer_class(
-            self.expert.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
-        ) 
 
         # Target networks should always be in eval mode
         self.actor_target.set_training_mode(False)
@@ -236,10 +221,6 @@ class TD3Policy(BasePolicy):
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
         return ContinuousCritic(**critic_kwargs).to(self.device)
 
-    def make_expert(self, features_extractor: Optional[BaseFeaturesExtractor] = None) -> Actor:
-        expert_kwargs = self._update_features_extractor(self.expert_kwargs, features_extractor)
-        return Actor(**expert_kwargs).to(self.device)
-
     def forward(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         return self._predict(observation, deterministic=deterministic)
 
@@ -258,7 +239,6 @@ class TD3Policy(BasePolicy):
         """
         self.actor.set_training_mode(mode)
         self.critic.set_training_mode(mode)
-        self.expert.set_training_mode(mode)
         self.training = mode
 
 
