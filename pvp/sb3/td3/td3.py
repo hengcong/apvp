@@ -115,7 +115,7 @@ class TD3(OffPolicyAlgorithm):
             support_multi_env=True,
             monitor_wrapper=monitor_wrapper
         )
-
+        self.expert_network = None
         self.policy_delay = policy_delay
         self.target_noise_clip = target_noise_clip
         self.target_policy_noise = target_policy_noise
@@ -133,7 +133,6 @@ class TD3(OffPolicyAlgorithm):
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
         self.expert = self.policy.expert
-
     def train(self, gradient_steps: int, batch_size: int = 100) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
